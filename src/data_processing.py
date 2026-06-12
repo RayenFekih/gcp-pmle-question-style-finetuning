@@ -1,18 +1,14 @@
 import json
-import random
 import re
-from collections import Counter
 from pathlib import Path
 
 from google.genai import types
+from tqdm import tqdm
 
-from src.prompts import SYSTEM_PROMPT, USER_PROMPT
+from src.prompts import FIXED_TASK_PROMPT, SYSTEM_PROMPT, USER_PROMPT
 from src.schemas import QuestionMetadata
-
-INPUT_PATH = Path("data/gcp-ml-engineer.md")
-TRAIN_JSONL_PATH = Path("data/training_data.jsonl")
-METADATA_FILE = Path("data/metadata.jsonl")
-MODEL_NAME = "gemini-3.1-flash-lite"
+from src.settings import settings
+from src.utils import already_processed_ids, gemini_retry, initialize_gemini_client, load_jsonl, load_questions
 
 
 def clean_text(text: str) -> str:
@@ -81,8 +77,10 @@ def parse_block(block: str) -> dict | None:
     }
 
 
+@gemini_retry
 def extract_metadata(question_row: dict, client, model: str, temperature: float = 0.2) -> QuestionMetadata:
     options = question_row["options"]
+
     user_prompt = USER_PROMPT.format(
         question=question_row["question"],
         option_a=options["A"],
@@ -97,16 +95,11 @@ def extract_metadata(question_row: dict, client, model: str, temperature: float 
         contents=user_prompt,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
-
-            # Structured output
             response_mime_type="application/json",
             response_schema=QuestionMetadata,
-
-            # Disable thinking
             thinking_config=types.ThinkingConfig(
                 thinking_budget=0
             ),
-
             temperature=temperature,
         ),
     )
@@ -114,21 +107,134 @@ def extract_metadata(question_row: dict, client, model: str, temperature: float 
     return response.parsed
 
 
-def load_questions(path: Path):
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            yield json.loads(line)
+def build_metadata():
+    METADATA_FILE = Path(settings.METADATA_PATH)
+    QUESTIONS_FILE = Path(settings.QUESTIONS_PATH)
+
+    processed_ids = already_processed_ids()
+    questions = load_questions(QUESTIONS_FILE)
+    client = initialize_gemini_client()
+
+    for row in tqdm(questions, ncols=200, desc="Processing questions"):
+        question_id = row["question_id"]
+
+        if question_id in processed_ids:
+            continue
+
+        try:
+            metadata = extract_metadata(
+                row, client, model=settings.MODEL_NAME, temperature=0.2)
+
+            output_row = {
+                "question_id": question_id,
+                "topic_id": row["topic_id"],
+                "metadata": metadata.model_dump(),
+            }
+
+            with METADATA_FILE.open("a", encoding="utf-8") as f:
+                f.write(
+                    json.dumps(
+                        output_row,
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+        except Exception as e:
+            print(
+                f"Failed question {question_id}: {e}"
+            )
 
 
-def already_processed_ids():
-    ids = set()
+def normalize_products(products: list[str]) -> list[str]:
+    cleaned = []
+    seen = set()
 
-    if not METADATA_FILE.exists():
-        return ids
+    for product in products:
+        product = product.strip()
 
-    with METADATA_FILE.open("r", encoding="utf-8") as f:
-        for line in f:
-            item = json.loads(line)
-            ids.add(item["question_id"])
+        if not product:
+            continue
 
-    return ids
+        key = product.lower()
+
+        if key not in seen:
+            cleaned.append(product)
+            seen.add(key)
+
+    return cleaned
+
+
+def build_input(metadata: dict) -> str:
+    products = normalize_products(metadata.get("products", []))
+    product_text = "\n".join(f"- {product}" for product in products)
+
+    base = (
+        f"{FIXED_TASK_PROMPT}\n\n"
+        f"Topic: {metadata['topic']}\n"
+        f"Subtopic: {metadata['subtopic']}"
+    )
+
+    if product_text:
+        base += f"\n\nProducts:\n{product_text}"
+
+    return base
+
+
+def clean_option_text(text: str) -> str:
+    text = text.strip()
+
+    text = re.sub(r"([a-zA-Z\)])(\d+\.)", r"\1 \2", text)
+    text = re.sub(r"\.(\d+\.)", r". \1", text)
+    text = re.sub(r"\s+", " ", text)
+
+    return text
+
+
+def build_output(question_row: dict) -> str:
+    options = {
+        k: clean_option_text(v)
+        for k, v in question_row["options"].items()
+    }
+
+    return (
+        f"Question:\n{question_row['question']}\n\n"
+        f"A. {options['A']}\n"
+        f"B. {options['B']}\n"
+        f"C. {options['C']}\n"
+        f"D. {options['D']}\n\n"
+        f"Correct answer: {question_row['correct_answer']}"
+    )
+
+
+def generate_sft_data():
+    questions = load_jsonl(Path(settings.QUESTIONS_PATH))
+    metadata_rows = load_jsonl(Path(settings.METADATA_PATH))
+
+    metadata_by_id = {
+        row["question_id"]: row["metadata"]
+        for row in metadata_rows
+    }
+
+    examples = []
+    missing_metadata = 0
+
+    for question_row in questions:
+        question_id = question_row["question_id"]
+        metadata = metadata_by_id.get(question_id)
+
+        if metadata is None:
+            missing_metadata += 1
+            continue
+
+        examples.append({
+            "input": build_input(metadata),
+            "output": build_output(question_row),
+        })
+
+    SFT_DATA_FILE = Path(settings.SFT_DATA_PATH)
+    SFT_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    with SFT_DATA_FILE.open("w", encoding="utf-8") as f:
+        for example in examples:
+            f.write(json.dumps(example, ensure_ascii=False) + "\n")

@@ -1,27 +1,21 @@
 SYSTEM_PROMPT = """
 You are an expert Google Cloud Professional Machine Learning Engineer (PMLE) exam analyst.
 
-Your task is to analyze certification-style multiple-choice questions and extract structured metadata that can later be used to train a model to generate new PMLE-style questions.
+Your task is to analyze certification-style multiple-choice questions and extract simple metadata that can later be used as input to train a model to generate new PMLE-style questions.
 
-The metadata should capture:
+Extract only:
 
-- the underlying topic
-- the exam objective
-- the business scenario
-- the important constraints
-- the primary trap or decision point
-- the estimated difficulty
+- broad topic
+- specific subtopic
+- Google Cloud products/services/tools involved
 
 Guidelines:
 
-1. Focus on the concepts being tested rather than the specific answer.
-2. Topic notes should describe the scenario without revealing the correct option.
-3. Key constraints should capture requirements that drive the architectural decision.
-4. Trap type should describe the primary confusion or comparison being tested.
-5. Difficulty should be:
-   - easy: mostly recall
-   - medium: requires comparison and understanding
-   - hard: requires architectural reasoning across multiple constraints
+1. The topic should be broad and reusable.
+2. The subtopic should be specific enough to distinguish this question from other questions in the same topic.
+3. Products should include only concrete Google Cloud products, services, APIs, or tools mentioned or clearly implied by the question and answer choices.
+4. Do not include difficulty, traps, explanations, or constraints.
+5. Do not reveal the correct answer directly.
 6. Use concise language.
 7. Return only data matching the provided schema.
 """
@@ -48,9 +42,13 @@ Correct Answer:
 
 Extract metadata that could later be used as input to a fine-tuned model that generates similar PMLE-style questions.
 
-Important:
-
-- Do not reveal the answer in the topic notes.
-- Focus on the scenario, requirements, and decision-making process.
-- The metadata should generalize beyond this exact question.
+Return only:
+- topic
+- subtopic
+- products
 """
+
+FIXED_TASK_PROMPT = (
+    "Generate a Google Professional Machine Learning Engineer style "
+    "multiple-choice question."
+)
