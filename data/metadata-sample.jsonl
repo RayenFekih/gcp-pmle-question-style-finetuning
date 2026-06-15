@@ -1,0 +1,3 @@
+{"question_id": 237, "topic_id": 1, "metadata": {"topic": "Model Development", "subtopic": "Choosing between AutoML and custom training for image classification", "products": ["Vertex AI", "Cloud Storage"]}}
+{"question_id": 295, "topic_id": 1, "metadata": {"topic": "BigQuery ML", "subtopic": "Model selection and feature engineering for regression tasks", "products": ["BigQuery", "BigQuery ML"]}}
+{"question_id": 335, "topic_id": 1, "metadata": {"topic": "MLOps", "subtopic": "Automating and orchestrating model training pipelines", "products": ["Vertex AI Pipelines", "Vertex AI Model Registry", "Cloud Scheduler", "Cloud Run functions"]}}
