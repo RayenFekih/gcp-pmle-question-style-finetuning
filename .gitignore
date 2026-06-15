@@ -217,3 +217,5 @@ logs/*
 # Outputs
 output/*
 !output/.gitkeep
+
+!data/*-sample*
