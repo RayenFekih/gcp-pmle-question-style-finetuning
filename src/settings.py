@@ -20,5 +20,14 @@ class Settings(BaseSettings):
     QUESTIONS_PATH = "data/training_data.jsonl"
     SFT_DATA_PATH = "data/sft_dataset.jsonl"
 
+    # Fine-tuning hyperparameters
+    MODEL_NAME: str = "unsloth/Qwen2.5-3B-Instruct"
+    MAX_SEQ_LENGTH: int = 1024
+    LORA_RANK: int = 64
+    LEARNING_RATE: float = 5e-6
+    LR_SCHEDULER_TYPE: str = "cosine"
+    OPTIMIZER: str = "adamw_8bit"
+    MAX_STEPS: int = 250
+
 
 settings = Settings()
